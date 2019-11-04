@@ -1,0 +1,36 @@
+---
+- hosts: docker_ee_hosts
+  tasks:
+  - import_tasks: docker-ee.yml
+    vars:
+      # DOCKER_EE_URL: <supply in --extra-vars at the command line>
+      DOCKER_EE_VERSION: 19.03
+  - import_tasks: kubectl.tasks.yml
+    vars:
+      kubectl_version: "1.15.5"
+      # SHA512 checksum of the archive (see https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG-1.15.md
+      kubectl_checksum: "sha512:e462587773345695e3d2e2faba53d0bf4a57ab6fe5ae69e5f253fe8529247d05d36d2b8ea6cf5f60dd9c805e29f8385cd42b25d79576248544f26511dc98626b"
+
+- hosts: docker_ee_managers
+  tasks:
+  - name: Install Docker UCP
+    docker_container:
+      name: ucp
+      image: docker/ucp:3.2.3
+      auto_remove: yes
+      volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      command: install --host-address "{{ ansible_default_ipv4.address }}" --admin-username admin --admin-password dockeradmin --pod-cidr '192.168.128.0/17'
+  - name: Get swarm join command
+    shell: docker swarm join-token worker | tail +3 | head -1 | awk '{$1=$1};1'
+    register: docker_swarm_join_command
+  - name: Add dummy host
+    add_host:
+      name: 'docker_swarm_join'
+      command: '{{ docker_swarm_join_command.stdout }}'
+
+- hosts: docker_ee_workers
+  tasks:
+  - name: Join swarm
+    shell: "{{ hostvars['docker_swarm_join']['command'] }}"
+    ignore_errors: yes
